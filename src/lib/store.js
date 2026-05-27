@@ -1,4 +1,7 @@
-const STORAGE_KEY = 'pitcher_scout_games'
+const STORAGE_KEY = 'pitch_tracking_games'
+const OFFLINE_QUEUE_KEY = 'pitch_tracking_offline_queue'
+
+// ── LOCAL GAME STORAGE ────────────────────────────────────────────────────────
 
 export function localLoadGames() {
   try {
@@ -27,4 +30,39 @@ export function localSaveGame(game) {
 export function localDeleteGame(id) {
   const games = localLoadGames().filter(g => g.id !== id)
   localStorage.setItem(STORAGE_KEY, JSON.stringify(games))
+}
+
+// ── OFFLINE QUEUE ─────────────────────────────────────────────────────────────
+// When Supabase is configured but we're offline, queue saves here
+// and sync them when the connection is restored.
+
+export function queueOfflineSave(game) {
+  try {
+    const queue = getOfflineQueue()
+    const idx = queue.findIndex(g => g.id === game.id)
+    if (idx > -1) queue[idx] = game
+    else queue.push(game)
+    localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue))
+    // Also save locally so the UI still works
+    localSaveGame(game)
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+export function getOfflineQueue() {
+  try {
+    const raw = localStorage.getItem(OFFLINE_QUEUE_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch {
+    return []
+  }
+}
+
+export function clearOfflineQueue() {
+  localStorage.removeItem(OFFLINE_QUEUE_KEY)
+}
+
+export function hasOfflineQueue() {
+  return getOfflineQueue().length > 0
 }
