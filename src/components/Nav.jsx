@@ -23,8 +23,7 @@ export default function Nav() {
     }}>
       <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
        
-       <img
-       src="/logo.png"
+      <img src={import.meta.env.BASE_URL + "logo.png"} 
        alt="Pitch Tracking"
        style={{
         height: 30,
