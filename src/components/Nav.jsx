@@ -22,13 +22,16 @@ export default function Nav() {
       zIndex: 100,
     }}>
       <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <div style={{
-          width: 30, height: 30,
-          background: 'var(--accent)',
-          borderRadius: 6,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontFamily: 'Barlow Condensed', fontWeight: 700, fontSize: 14, color: '#0f1117'
-        }}>PS</div>
+       
+       <img
+       src="/logo.png"
+       alt="Pitch Tracking"
+       style={{
+        height: 30,
+        width: 'auto',
+        objectFit: 'contain'
+       }}
+       />
         <span style={{ fontFamily: 'Barlow Condensed', fontWeight: 700, fontSize: 18, letterSpacing: '0.04em' }}>
           PITCH TRACKING
         </span>
