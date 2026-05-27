@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import { queueOfflineSave, getOfflineQueue, clearOfflineQueue, localSaveGame } from './store'
+import { queueOfflineSave, getOfflineQueue, clearOfflineQueue, localSaveGame, localLoadGames } from './store'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || ''
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || ''
@@ -10,36 +10,26 @@ export const supabase = SUPABASE_URL && SUPABASE_ANON_KEY
 
 export const isSupabaseConfigured = () => !!supabase
 
-// ── ONLINE STATUS ─────────────────────────────────────────────────────────────
 export function isOnline() {
   return navigator.onLine
 }
 
 // ── OFFLINE QUEUE SYNC ────────────────────────────────────────────────────────
-// Call this when the app comes back online to flush any queued saves
 export async function syncOfflineQueue() {
   if (!supabase || !isOnline()) return
   const queue = getOfflineQueue()
   if (!queue.length) return
-
-  console.log(`Syncing ${queue.length} offline game(s) to Supabase...`)
   for (const game of queue) {
     await saveGame(game)
   }
   clearOfflineQueue()
-  console.log('Offline sync complete.')
 }
 
-// Listen for coming back online and auto-sync
 if (typeof window !== 'undefined') {
-  window.addEventListener('online', () => {
-    syncOfflineQueue()
-  })
+  window.addEventListener('online', () => syncOfflineQueue())
 }
 
 // ─── SUPABASE SCHEMA ──────────────────────────────────────────────────────────
-// Run this SQL in your Supabase SQL Editor:
-//
 // create table games (
 //   id uuid primary key default gen_random_uuid(),
 //   created_at timestamptz default now(),
@@ -58,26 +48,30 @@ if (typeof window !== 'undefined') {
 
 export async function loadGames() {
   if (!supabase) return { data: null, error: 'Supabase not configured' }
+
+  // Offline — return local cache
   if (!isOnline()) {
-    // Return locally cached games while offline
-    const { localLoadGames } = await import('./store')
     return { data: localLoadGames(), error: null }
   }
+
   const result = await supabase
     .from('games')
     .select('*')
     .order('date', { ascending: false })
-  // Cache locally for offline use
-  if (result.data) {
+
+  // Only cache locally if Supabase actually returned data
+  // Never overwrite local cache with an empty result
+  if (result.data && result.data.length > 0) {
     result.data.forEach(g => localSaveGame(g))
   }
+
   return result
 }
 
 export async function saveGame(game) {
   if (!supabase) return { data: null, error: 'Supabase not configured' }
 
-  // If offline, queue it and save locally
+  // Offline — queue and save locally
   if (!isOnline()) {
     queueOfflineSave(game)
     return { data: game, error: null, offline: true }
@@ -85,13 +79,27 @@ export async function saveGame(game) {
 
   try {
     let result
+
     if (game.id) {
-      result = await supabase
+      // Try update first
+      const updateResult = await supabase
         .from('games')
         .update({ ...game, updated_at: new Date().toISOString() })
         .eq('id', game.id)
         .select()
         .single()
+
+      // If update returned no data the row doesn't exist yet — insert instead
+      if (!updateResult.data || updateResult.error) {
+        const { id, ...gameWithoutId } = game
+        result = await supabase
+          .from('games')
+          .insert({ ...gameWithoutId, id })
+          .select()
+          .single()
+      } else {
+        result = updateResult
+      }
     } else {
       result = await supabase
         .from('games')
@@ -99,12 +107,14 @@ export async function saveGame(game) {
         .select()
         .single()
     }
-    // Also keep local copy in sync
+
+    // Keep local copy in sync
     if (result.data) localSaveGame(result.data)
     return result
   } catch (err) {
-    // Network error — queue for later
+    // Network error — queue for later, save locally
     queueOfflineSave(game)
+    localSaveGame(game)
     return { data: game, error: null, offline: true }
   }
 }
