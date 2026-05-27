@@ -46,10 +46,18 @@ if (typeof window !== 'undefined') {
 // create policy "public access" on games for all using (true);
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Strip out any fields that don't exist in the Supabase schema
+function cleanGameForSupabase(game) {
+  const { offline, ...clean } = game
+  return {
+    ...clean,
+    updated_at: new Date().toISOString(),
+  }
+}
+
 export async function loadGames() {
   if (!supabase) return { data: null, error: 'Supabase not configured' }
 
-  // Offline — return local cache
   if (!isOnline()) {
     return { data: localLoadGames(), error: null }
   }
@@ -59,8 +67,13 @@ export async function loadGames() {
     .select('*')
     .order('date', { ascending: false })
 
-  // Only cache locally if Supabase actually returned data
-  // Never overwrite local cache with an empty result
+  if (result.error) {
+    console.error('Supabase loadGames error:', result.error)
+    // Fall back to local data if Supabase fails
+    return { data: localLoadGames(), error: null }
+  }
+
+  // Only cache locally if Supabase returned actual data
   if (result.data && result.data.length > 0) {
     result.data.forEach(g => localSaveGame(g))
   }
@@ -71,51 +84,59 @@ export async function loadGames() {
 export async function saveGame(game) {
   if (!supabase) return { data: null, error: 'Supabase not configured' }
 
-  // Offline — queue and save locally
+  // Always save locally first so data is never lost
+  localSaveGame(game)
+
   if (!isOnline()) {
     queueOfflineSave(game)
     return { data: game, error: null, offline: true }
   }
 
+  const cleaned = cleanGameForSupabase(game)
+
   try {
     let result
 
-    if (game.id) {
-      // Try update first
-      const updateResult = await supabase
+    if (cleaned.id) {
+      // Try update
+      result = await supabase
         .from('games')
-        .update({ ...game, updated_at: new Date().toISOString() })
-        .eq('id', game.id)
+        .update(cleaned)
+        .eq('id', cleaned.id)
         .select()
         .single()
 
-      // If update returned no data the row doesn't exist yet — insert instead
-      if (!updateResult.data || updateResult.error) {
-        const { id, ...gameWithoutId } = game
+      // If row doesn't exist yet, insert it
+      if (result.error || !result.data) {
+        console.log('Update failed, trying insert:', result.error?.message)
+        const { id, ...rest } = cleaned
         result = await supabase
           .from('games')
-          .insert({ ...gameWithoutId, id })
+          .insert({ ...rest, id })
           .select()
           .single()
-      } else {
-        result = updateResult
       }
     } else {
       result = await supabase
         .from('games')
-        .insert(game)
+        .insert(cleaned)
         .select()
         .single()
     }
 
-    // Keep local copy in sync
+    if (result.error) {
+      console.error('Supabase saveGame error:', result.error)
+      queueOfflineSave(game)
+      return { data: game, error: result.error }
+    }
+
     if (result.data) localSaveGame(result.data)
     return result
+
   } catch (err) {
-    // Network error — queue for later, save locally
+    console.error('Supabase saveGame exception:', err)
     queueOfflineSave(game)
-    localSaveGame(game)
-    return { data: game, error: null, offline: true }
+    return { data: game, error: err }
   }
 }
 
