@@ -9,16 +9,28 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700&family=Barlow:wght@400;500&display=swap" rel="stylesheet" />
 
-    <!-- ✅ PWA ICON + MANIFEST -->
+    <!-- PWA manifest -->
     <link rel="manifest" href="manifest.json" />
-    <meta name="theme-color" content="#000000" />
 
-    <!-- 🍎 iOS support -->
-    <link rel="apple-touch-icon" href="icon-192.png" />
+    <!-- Theme color (browser chrome on mobile) -->
+    <meta name="theme-color" content="#0f1117" />
+
+    <!-- Favicon for browser tabs and bookmarks -->
+    <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png" />
+    <link rel="shortcut icon" href="icon-192.png" />
+
+    <!-- iOS home screen icon -->
+    <link rel="apple-touch-icon" sizes="192x192" href="icon-192.png" />
+    <link rel="apple-touch-icon" sizes="512x512" href="icon-512.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  </head>
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Pitch Tracking" />
 
+    <!-- Android / Open Graph -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="application-name" content="Pitch Tracking" />
+  </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
