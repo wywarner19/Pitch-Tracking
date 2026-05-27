@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { saveGame, isSupabaseConfigured } from '../lib/supabase'
 import { localSaveGame } from '../lib/store'
+import PitcherAutocomplete from '../components/PitcherAutocomplete'
 
 export default function NewGame() {
   const navigate = useNavigate()
@@ -70,7 +71,12 @@ export default function NewGame() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '1rem' }}>
               <div>
                 <label style={{ fontSize: 13, color: 'var(--text2)', display: 'block', marginBottom: 6 }}>Pitcher name</label>
-                <input type="text" placeholder="e.g. Jake Thompson" value={form.pitcher_name} onChange={e => set('pitcher_name', e.target.value)} />
+                <PitcherAutocomplete
+                  value={form.pitcher_name}
+                  onChange={v => set('pitcher_name', v)}
+                  onSelect={p => setForm(f => ({ ...f, pitcher_name: p.name, pitcher_number: p.number, pitcher_throws: p.throws }))}
+                  placeholder="Search or type pitcher name"
+                />
               </div>
               <div>
                 <label style={{ fontSize: 13, color: 'var(--text2)', display: 'block', marginBottom: 6 }}>Jersey #</label>

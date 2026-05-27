@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { saveGame, loadGames, isSupabaseConfigured } from '../lib/supabase'
 import { localLoadGames, localSaveGame } from '../lib/store'
 import { exportPDF, exportExcel } from '../lib/exportUtils'
+import PitcherAutocomplete from '../components/PitcherAutocomplete'
 
 const PITCH_TYPES = [
   { id: 'FB', label: 'Fastball', color: '#4a8fe8' },
@@ -69,6 +70,11 @@ export default function GameDetail() {
   const [outs, setOuts] = useState(0)
   const [showPitcherSwitch, setShowPitcherSwitch] = useState(false)
   const [switchForm, setSwitchForm] = useState({ name: '', number: '', throws: 'R' })
+  const [showEditPitcher, setShowEditPitcher] = useState(false)
+  const [editForm, setEditForm] = useState({ name: '', number: '', throws: 'R' })
+  const [selectedPitches, setSelectedPitches] = useState(new Set())
+  const [showReassign, setShowReassign] = useState(false)
+  const [reassignName, setReassignName] = useState('')
 
   // Filter state
   const [fHand, setFHand] = useState('All')
@@ -321,7 +327,6 @@ export default function GameDetail() {
     }
     setGame(updated)
     debouncedSave(updated)
-    // Reset count and batter tracking for new pitcher
     setBalls(0); setStrikes(0)
     setBatterNum(1)
     setBases([false, false, false])
@@ -329,6 +334,54 @@ export default function GameDetail() {
     setSits(buildAutoSits(1, inning, myScore, oppScore, [], [false, false, false]))
     setShowPitcherSwitch(false)
     setSwitchForm({ name: '', number: '', throws: 'R' })
+  }
+
+  function openEditPitcher() {
+    setEditForm({
+      name: game.pitcher_name || '',
+      number: game.pitcher_number || '',
+      throws: game.pitcher_throws || 'R',
+    })
+    setShowEditPitcher(true)
+  }
+
+  function saveEditPitcher() {
+    if (!editForm.name.trim()) return
+    const updated = {
+      ...game,
+      pitcher_name: editForm.name.trim(),
+      pitcher_number: editForm.number,
+      pitcher_throws: editForm.throws,
+    }
+    setGame(updated)
+    debouncedSave(updated)
+    setShowEditPitcher(false)
+  }
+
+  function togglePitchSelect(pid) {
+    setSelectedPitches(prev => {
+      const next = new Set(prev)
+      if (next.has(pid)) next.delete(pid)
+      else next.add(pid)
+      return next
+    })
+  }
+
+  function reassignPitches() {
+    if (!reassignName.trim() || selectedPitches.size === 0) return
+    const updated = {
+      ...game,
+      pitches: (game.pitches || []).map(p =>
+        selectedPitches.has(p.id)
+          ? { ...p, pitcherName: reassignName.trim() }
+          : p
+      ),
+    }
+    setGame(updated)
+    debouncedSave(updated)
+    setSelectedPitches(new Set())
+    setReassignName('')
+    setShowReassign(false)
   }
 
   if (!game) return <div style={{ padding: '3rem', color: 'var(--text2)' }}>Loading…</div>
@@ -354,6 +407,11 @@ export default function GameDetail() {
               <h1 style={{ fontSize: 28, fontWeight: 700 }}>{game.pitcher_name}</h1>
               {game.pitcher_number && <span className="tag tag-gray">#{game.pitcher_number}</span>}
               <span className={`tag ${game.pitcher_throws === 'L' ? 'tag-blue' : 'tag-gold'}`}>{game.pitcher_throws}HP</span>
+              <button onClick={openEditPitcher} title="Edit pitcher info" style={{
+                border: '1px solid var(--border2)', borderRadius: 6,
+                background: 'transparent', color: 'var(--text3)',
+                padding: '3px 8px', fontSize: 12, cursor: 'pointer',
+              }}>✏ Edit</button>
               {saving && <span style={{ fontSize: 11, color: 'var(--text3)' }}>Saving…</span>}
             </div>
             <div style={{ fontSize: 14, color: 'var(--text2)' }}>
@@ -897,10 +955,26 @@ export default function GameDetail() {
                   {RESULTS.map(r => <option key={r.id} value={r.id}>{r.id}</option>)}
                 </select>
               </div>
+              {selectedPitches.size > 0 && (
+                <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+                  <div style={{ fontSize: 12, color: 'var(--accent)', marginBottom: 8, fontWeight: 500 }}>
+                    {selectedPitches.size} pitch{selectedPitches.size !== 1 ? 'es' : ''} selected
+                  </div>
+                  <button className="btn btn-sm btn-primary" style={{ width: '100%', justifyContent: 'center', marginBottom: 6 }} onClick={() => setShowReassign(true)}>
+                    Reassign Pitcher
+                  </button>
+                  <button className="btn btn-sm" style={{ width: '100%', justifyContent: 'center' }} onClick={() => setSelectedPitches(new Set())}>
+                    Clear selection
+                  </button>
+                </div>
+              )}
             </div>
           </div>
           <div className="card">
-            <div className="section-label">{getFeedFiltered().length} pitches</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              <div className="section-label" style={{ marginBottom: 0 }}>{getFeedFiltered().length} pitches</div>
+              <div style={{ fontSize: 12, color: 'var(--text3)' }}>Tap pitch to select for reassignment</div>
+            </div>
             {getFeedFiltered().length === 0
               ? <div style={{ color: 'var(--text3)', fontSize: 13, padding: '1rem 0' }}>No pitches yet.</div>
               : getFeedFiltered().map((p) => {
@@ -909,9 +983,28 @@ export default function GameDetail() {
                     : p.result === 'In play — hit' ? 'var(--blue)'
                     : p.result === 'HBP' ? '#a855f7'
                     : 'var(--text3)'
+                  const isSelected = selectedPitches.has(p.id)
                   return (
-                    <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
+                    <div key={p.id} onClick={() => togglePitchSelect(p.id)} style={{
+                      display: 'flex', alignItems: 'center', gap: 8,
+                      padding: '8px 10px', borderRadius: 6, marginBottom: 2,
+                      border: `1px solid ${isSelected ? 'var(--accent)' : 'transparent'}`,
+                      background: isSelected ? 'rgba(212,168,67,0.08)' : 'transparent',
+                      cursor: 'pointer', flexWrap: 'wrap',
+                    }}>
+                      {/* Selection checkbox */}
+                      <div style={{
+                        width: 16, height: 16, borderRadius: 4, flexShrink: 0,
+                        border: `1.5px solid ${isSelected ? 'var(--accent)' : 'var(--border2)'}`,
+                        background: isSelected ? 'var(--accent)' : 'transparent',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        {isSelected && <span style={{ fontSize: 10, color: '#0f1117', fontWeight: 700 }}>✓</span>}
+                      </div>
                       <span style={{ fontSize: 11, color: 'var(--text3)', minWidth: 28 }}>#{allPitches.length - allPitches.findIndex(x => x.id === p.id)}</span>
+                      {p.pitcherName && p.pitcherName !== game.pitcher_name && (
+                        <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 3, background: 'rgba(212,168,67,0.15)', color: 'var(--accent)', fontFamily: 'Barlow Condensed', fontWeight: 600 }}>{p.pitcherName}</span>
+                      )}
                       <span style={{ padding: '2px 8px', borderRadius: 4, background: ptColor(p.pitch)+'20', color: ptColor(p.pitch), fontSize: 12, fontFamily: 'Barlow Condensed', fontWeight: 600 }}>{ptLabel(p.pitch)}</span>
                       <span style={{ fontSize: 12, color: 'var(--text2)', fontFamily: 'Barlow Condensed', fontWeight: 600 }}>{p.count}</span>
                       <span style={{ fontSize: 12, color: 'var(--text3)' }}>{p.hand}HH</span>
@@ -919,18 +1012,18 @@ export default function GameDetail() {
                       {p.inning && <span style={{ fontSize: 11, color: 'var(--text3)' }}>Inn {p.inning}</span>}
                       {p.sits && p.sits.slice(0,2).map(s => <span key={s} style={{ fontSize: 10, padding: '1px 6px', borderRadius: 3, background: 'rgba(74,143,232,0.1)', color: 'var(--blue)' }}>{s}</span>)}
                       <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text3)' }}>{p.ts}</span>
-                      <button onClick={() => deletePitch(p.id)} style={{ border: 'none', background: 'none', color: 'var(--text3)', cursor: 'pointer', fontSize: 13, padding: '2px 4px' }}>✕</button>
+                      <button onClick={e => { e.stopPropagation(); deletePitch(p.id) }} style={{ border: 'none', background: 'none', color: 'var(--text3)', cursor: 'pointer', fontSize: 13, padding: '2px 4px' }}>✕</button>
                     </div>
                   )
                 })
             }
           </div>
         </div>
-      )}\n
+
       {/* ── PITCHER SWITCH MODAL ── */}
       {showPitcherSwitch && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 14, padding: '1.75rem', width: 340, maxWidth: '90vw' }}>
+          <div style={{ background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 14, padding: '1.75rem', width: 360, maxWidth: '90vw' }}>
             <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>Switch Pitcher</h2>
             <p style={{ fontSize: 13, color: 'var(--text2)', marginBottom: '1.25rem' }}>
               Current: <strong style={{ color: 'var(--accent)' }}>{game.pitcher_name}</strong> — pitch history is preserved. Batter count resets for new pitcher.
@@ -938,7 +1031,12 @@ export default function GameDetail() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div>
                 <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 5 }}>New pitcher name</div>
-                <input type="text" placeholder="e.g. Marcus Rivera" value={switchForm.name} onChange={e => setSwitchForm(f => ({ ...f, name: e.target.value }))} />
+                <PitcherAutocomplete
+                  value={switchForm.name}
+                  onChange={v => setSwitchForm(f => ({ ...f, name: v }))}
+                  onSelect={p => setSwitchForm({ name: p.name, number: p.number, throws: p.throws })}
+                  placeholder="Search or type pitcher name"
+                />
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div>
@@ -956,10 +1054,74 @@ export default function GameDetail() {
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8, marginTop: '1.25rem' }}>
-              <button className="btn btn-primary" style={{ flex: 1, justifyContent: 'center' }} onClick={switchPitcher} disabled={!switchForm.name.trim()}>
-                Switch Pitcher
-              </button>
+              <button className="btn btn-primary" style={{ flex: 1, justifyContent: 'center' }} onClick={switchPitcher} disabled={!switchForm.name.trim()}>Switch Pitcher</button>
               <button className="btn" onClick={() => setShowPitcherSwitch(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── EDIT PITCHER MODAL ── */}
+      {showEditPitcher && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 14, padding: '1.75rem', width: 360, maxWidth: '90vw' }}>
+            <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>Edit Pitcher</h2>
+            <p style={{ fontSize: 13, color: 'var(--text2)', marginBottom: '1.25rem' }}>
+              Fix a spelling mistake or update pitcher details. All pitches stay unchanged.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 5 }}>Pitcher name</div>
+                <PitcherAutocomplete
+                  value={editForm.name}
+                  onChange={v => setEditForm(f => ({ ...f, name: v }))}
+                  onSelect={p => setEditForm({ name: p.name, number: p.number, throws: p.throws })}
+                  placeholder="Pitcher name"
+                />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 5 }}>Jersey #</div>
+                  <input type="text" placeholder="#" value={editForm.number} onChange={e => setEditForm(f => ({ ...f, number: e.target.value }))} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 5 }}>Throws</div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    {['R','L'].map(h => (
+                      <button key={h} onClick={() => setEditForm(f => ({ ...f, throws: h }))} style={{ flex: 1, padding: '8px', fontFamily: 'Barlow Condensed', fontWeight: 700, fontSize: 14, border: `1px solid ${editForm.throws === h ? 'var(--accent)' : 'var(--border2)'}`, borderRadius: 6, background: editForm.throws === h ? 'rgba(212,168,67,0.15)' : 'transparent', color: editForm.throws === h ? 'var(--accent)' : 'var(--text2)', cursor: 'pointer' }}>{h}HP</button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: '1.25rem' }}>
+              <button className="btn btn-primary" style={{ flex: 1, justifyContent: 'center' }} onClick={saveEditPitcher} disabled={!editForm.name.trim()}>Save Changes</button>
+              <button className="btn" onClick={() => setShowEditPitcher(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── REASSIGN PITCHES MODAL ── */}
+      {showReassign && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 14, padding: '1.75rem', width: 360, maxWidth: '90vw' }}>
+            <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>Reassign Pitches</h2>
+            <p style={{ fontSize: 13, color: 'var(--text2)', marginBottom: '1.25rem' }}>
+              Reassigning <strong style={{ color: 'var(--accent)' }}>{selectedPitches.size} pitch{selectedPitches.size !== 1 ? 'es' : ''}</strong> to a different pitcher.
+            </p>
+            <div>
+              <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 5 }}>Assign to pitcher</div>
+              <PitcherAutocomplete
+                value={reassignName}
+                onChange={v => setReassignName(v)}
+                onSelect={p => setReassignName(p.name)}
+                placeholder="Search or type pitcher name"
+              />
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: '1.25rem' }}>
+              <button className="btn btn-primary" style={{ flex: 1, justifyContent: 'center' }} onClick={reassignPitches} disabled={!reassignName.trim()}>Reassign</button>
+              <button className="btn" onClick={() => setShowReassign(false)}>Cancel</button>
             </div>
           </div>
         </div>
