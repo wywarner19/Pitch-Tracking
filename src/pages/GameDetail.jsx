@@ -115,6 +115,15 @@ export default function GameDetail() {
     }, 800)
   }, [])
 
+  // Immediate save — used for one-shot changes like editing pitcher info
+  async function immediateSave(updatedGame) {
+    setSaving(true)
+    clearTimeout(saveTimer.current) // cancel any pending debounced save
+    if (isSupabaseConfigured()) await saveGame(updatedGame)
+    else localSaveGame(updatedGame)
+    setSaving(false)
+  }
+
   function getTimeThrough(num) {
     if (num <= 9) return '1st time through order'
     if (num <= 18) return '2nd time through order'
@@ -326,7 +335,7 @@ export default function GameDetail() {
       pitcher_throws: switchForm.throws,
     }
     setGame(updated)
-    debouncedSave(updated)
+    immediateSave(updated)
     setBalls(0); setStrikes(0)
     setBatterNum(1)
     setBases([false, false, false])
@@ -354,7 +363,7 @@ export default function GameDetail() {
       pitcher_throws: editForm.throws,
     }
     setGame(updated)
-    debouncedSave(updated)
+    immediateSave(updated)
     setShowEditPitcher(false)
   }
 
@@ -378,7 +387,7 @@ export default function GameDetail() {
       ),
     }
     setGame(updated)
-    debouncedSave(updated)
+    immediateSave(updated)
     setSelectedPitches(new Set())
     setReassignName('')
     setShowReassign(false)
