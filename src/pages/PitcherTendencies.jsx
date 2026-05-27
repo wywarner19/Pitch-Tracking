@@ -19,7 +19,7 @@ const ptLabel = id => PITCH_TYPES.find(p => p.id === id)?.label || id
 const SITUATIONS = [
   '1st time through order','2nd time through order','3rd time through order',
   'Runners on','RISP','Bases loaded',
-  'Up 1–2 runs','Down 1–2 runs','Tie game',
+  'Up 1–2 runs','Up 3+ runs','Down 1–2 runs','Down 3+ runs','Tie game',
   'Late innings (7+)','Lead-off AB','2 outs',
 ]
 
@@ -29,6 +29,8 @@ export default function PitcherTendencies() {
   const [fHand, setFHand] = useState('All')
   const [fCount, setFCount] = useState('All')
   const [fSit, setFSit] = useState('All')
+  const [sortBy, setSortBy] = useState('pitches') // 'pitches' | 'name' | 'team'
+  const [teamFilter, setTeamFilter] = useState('All')
 
   useEffect(() => {
     async function fetch() {
@@ -49,17 +51,31 @@ export default function PitcherTendencies() {
   const pitcherMap = {}
   games.forEach(g => {
     const key = g.pitcher_name
-    if (!pitcherMap[key]) pitcherMap[key] = { name: key, throws: g.pitcher_throws, games: [], pitches: [] }
+    if (!pitcherMap[key]) pitcherMap[key] = { name: key, throws: g.pitcher_throws, games: [], pitches: [], teams: new Set() }
     pitcherMap[key].games.push(g)
     pitcherMap[key].pitches.push(...(g.pitches || []))
+    pitcherMap[key].teams.add(g.opponent)
   })
-  const pitchers = Object.values(pitcherMap).sort((a, b) => b.pitches.length - a.pitches.length)
+
+  // Get all unique opponent teams
+  const allTeams = ['All', ...Array.from(new Set(games.map(g => g.opponent))).sort()]
+
+  // Filter and sort pitchers
+  let pitchers = Object.values(pitcherMap)
+  if (teamFilter !== 'All') {
+    pitchers = pitchers.filter(p => p.games.some(g => g.opponent === teamFilter))
+  }
+  pitchers = pitchers.sort((a, b) => {
+    if (sortBy === 'name') return a.name.localeCompare(b.name)
+    if (sortBy === 'team') return Array.from(a.teams)[0]?.localeCompare(Array.from(b.teams)[0] || '') || 0
+    return b.pitches.length - a.pitches.length // default: most pitches
+  })
 
   const pitcher = pitcherMap[selected]
   const pitches = pitcher ? pitcher.pitches.filter(p => {
     if (fHand !== 'All' && p.hand !== fHand) return false
     if (fCount !== 'All' && p.count !== fCount) return false
-    if (fSit !== 'All' && !p.sits.includes(fSit)) return false
+    if (fSit !== 'All' && !p.sits?.includes(fSit)) return false
     return true
   }) : []
 
@@ -81,10 +97,40 @@ export default function PitcherTendencies() {
       <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 6 }}>Pitcher Tendencies</h1>
       <p style={{ color: 'var(--text2)', fontSize: 14, marginBottom: '1.5rem' }}>Cross-game tendencies aggregated by pitcher</p>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: '1rem' }}>
-        {/* Pitcher list */}
+      <div style={{ display: 'grid', gridTemplateColumns: '240px 1fr', gap: '1rem' }}>
+
+        {/* Left: Pitcher list with sort/filter */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          <div className="section-label">Pitchers scouted</div>
+
+          {/* Sort + Filter controls */}
+          <div className="card" style={{ padding: '0.75rem', marginBottom: 4 }}>
+            <div className="section-label" style={{ marginBottom: 8 }}>Sort & Filter</div>
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 4 }}>Sort by</div>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {[['pitches','# Pitches'],['name','Name'],['team','Team']].map(([val, lbl]) => (
+                  <button key={val} onClick={() => setSortBy(val)} style={{
+                    flex: 1, padding: '5px 4px', fontSize: 11, fontFamily: 'Barlow Condensed', fontWeight: 600,
+                    border: `1px solid ${sortBy === val ? 'var(--accent)' : 'var(--border2)'}`,
+                    borderRadius: 5, background: sortBy === val ? 'rgba(212,168,67,0.15)' : 'transparent',
+                    color: sortBy === val ? 'var(--accent)' : 'var(--text2)', cursor: 'pointer',
+                  }}>{lbl}</button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 4 }}>Filter by opponent</div>
+              <select value={teamFilter} onChange={e => setTeamFilter(e.target.value)} style={{ fontSize: 12 }}>
+                {allTeams.map(t => <option key={t}>{t}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div className="section-label">
+            {pitchers.length} pitcher{pitchers.length !== 1 ? 's' : ''}
+            {teamFilter !== 'All' ? ` vs ${teamFilter}` : ''}
+          </div>
+
           {pitchers.map(p => (
             <button key={p.name} onClick={() => setSelected(p.name)} style={{
               padding: '10px 12px', textAlign: 'left',
@@ -95,21 +141,24 @@ export default function PitcherTendencies() {
               <div style={{ fontFamily: 'Barlow Condensed', fontWeight: 700, fontSize: 16, color: selected === p.name ? 'var(--accent)' : 'var(--text)' }}>
                 {p.name}
               </div>
-              <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 2 }}>
-                {p.throws}HP · {p.games.length} game{p.games.length !== 1 ? 's' : ''} · {p.pitches.length} pitches
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>
+                {p.throws}HP · {Array.from(p.teams).join(', ')}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text3)' }}>
+                {p.games.length} game{p.games.length !== 1 ? 's' : ''} · {p.pitches.length} pitches
               </div>
             </button>
           ))}
         </div>
 
-        {/* Detail panel */}
+        {/* Right: Detail panel */}
         {pitcher && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
               <div>
                 <h2 style={{ fontSize: 24, fontWeight: 700 }}>{pitcher.name}</h2>
                 <div style={{ fontSize: 13, color: 'var(--text2)' }}>
-                  {pitcher.throws}HP · Scouted in {pitcher.games.map(g => g.opponent).join(', ')}
+                  {pitcher.throws}HP · Scouted vs {Array.from(pitcher.teams).join(', ')}
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -183,19 +232,47 @@ export default function PitcherTendencies() {
                 const counts = Object.keys(cmap).sort()
                 if (!counts.length) return <div style={{ color: 'var(--text3)', fontSize: 13 }}>No data.</div>
                 return counts.map(c => {
-                  const total = Object.values(cmap[c]).reduce((a,b)=>a+b,0)
-                  const sorted = Object.keys(cmap[c]).sort((a,b)=>cmap[c][b]-cmap[c][a])
+                  const t = Object.values(cmap[c]).reduce((a,b)=>a+b,0)
                   return (
                     <div key={c} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--border)' }}>
                       <div style={{ fontFamily: 'Barlow Condensed', fontWeight: 700, fontSize: 18, minWidth: 40, color: 'var(--text2)' }}>{c}</div>
                       <div style={{ flex: 1, display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                        {sorted.map(pt => (
+                        {Object.keys(cmap[c]).sort((a,b)=>cmap[c][b]-cmap[c][a]).map(pt => (
                           <span key={pt} style={{ fontSize: 12, padding: '3px 8px', borderRadius: 4, background: ptColor(pt)+'20', color: ptColor(pt), fontFamily: 'Barlow Condensed', fontWeight: 600 }}>
-                            {ptLabel(pt)} {Math.round(cmap[c][pt]/total*100)}%
+                            {ptLabel(pt)} {Math.round(cmap[c][pt]/t*100)}%
                           </span>
                         ))}
                       </div>
-                      <span style={{ fontSize: 11, color: 'var(--text3)' }}>{total} pitches</span>
+                      <span style={{ fontSize: 11, color: 'var(--text3)' }}>{t} pitches</span>
+                    </div>
+                  )
+                })
+              })()}
+            </div>
+
+            {/* Situation breakdown */}
+            <div className="card">
+              <div className="section-label">By situation</div>
+              {(() => {
+                const smap = {}
+                pitches.forEach(p => p.sits?.forEach(s => {
+                  if (!smap[s]) smap[s] = {}
+                  smap[s][p.pitch] = (smap[s][p.pitch]||0)+1
+                }))
+                const situations = Object.keys(smap)
+                if (!situations.length) return <div style={{ color: 'var(--text3)', fontSize: 13 }}>No situation data yet.</div>
+                return situations.map(s => {
+                  const t = Object.values(smap[s]).reduce((a,b)=>a+b,0)
+                  return (
+                    <div key={s} style={{ padding: '7px 0', borderBottom: '1px solid var(--border)' }}>
+                      <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 5 }}>{s}</div>
+                      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                        {Object.keys(smap[s]).sort((a,b)=>smap[s][b]-smap[s][a]).map(pt => (
+                          <span key={pt} style={{ fontSize: 12, padding: '3px 8px', borderRadius: 4, background: ptColor(pt)+'20', color: ptColor(pt), fontFamily: 'Barlow Condensed', fontWeight: 600 }}>
+                            {ptLabel(pt)} {Math.round(smap[s][pt]/t*100)}%
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   )
                 })

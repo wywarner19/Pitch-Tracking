@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { saveGame, loadGames, isSupabaseConfigured } from '../lib/supabase'
 import { localLoadGames, localSaveGame } from '../lib/store'
+import { exportPDF, exportExcel } from '../lib/exportUtils'
 
 const PITCH_TYPES = [
   { id: 'FB', label: 'Fastball', color: '#4a8fe8' },
@@ -66,6 +67,8 @@ export default function GameDetail() {
   const [oppScore, setOppScore] = useState(0)
   const [bases, setBases] = useState([false, false, false])
   const [outs, setOuts] = useState(0)
+  const [showPitcherSwitch, setShowPitcherSwitch] = useState(false)
+  const [switchForm, setSwitchForm] = useState({ name: '', number: '', throws: 'R' })
 
   // Filter state
   const [fHand, setFHand] = useState('All')
@@ -305,52 +308,27 @@ export default function GameDetail() {
     }).slice().reverse()
   }
 
-  function exportReport() {
-    if (!game) return
-    const pitches = game.pitches || []
-    const lines = [
-      'PITCH TRACKING REPORT', '====================', '',
-      `Pitcher: ${game.pitcher_name}${game.pitcher_number ? ' #' + game.pitcher_number : ''} (${game.pitcher_throws}HP)`,
-      `${game.my_team} vs ${game.opponent}`, `Date: ${game.date}`,
-      `Total pitches: ${pitches.length}`, '',
-    ]
-    const counts = {}
-    pitches.forEach(p => counts[p.pitch] = (counts[p.pitch] || 0) + 1)
-    lines.push('PITCH MIX', '---------')
-    Object.keys(counts).sort((a, b) => counts[b] - counts[a]).forEach(pt => {
-      const n = counts[pt], pct = Math.round(n / pitches.length * 100)
-      const sk = pitches.filter(p => p.pitch === pt && ['Called strike','Swinging strike','Foul'].includes(p.result)).length
-      lines.push(`${ptLabel(pt)}: ${n} (${pct}%) | Strike%: ${Math.round(sk/n*100)}%`)
-    })
-    lines.push('', 'COUNT TENDENCIES', '----------------')
-    const cmap = {}
-    pitches.forEach(p => {
-      if (!cmap[p.count]) cmap[p.count] = {}
-      cmap[p.count][p.pitch] = (cmap[p.count][p.pitch] || 0) + 1
-    })
-    Object.keys(cmap).sort().forEach(c => {
-      const total = Object.values(cmap[c]).reduce((a, b) => a + b, 0)
-      lines.push(`${c}: ` + Object.keys(cmap[c]).map(pt => `${ptLabel(pt)} ${Math.round(cmap[c][pt]/total*100)}%`).join(', '))
-    })
-    lines.push('', 'SITUATION TENDENCIES', '--------------------')
-    const smap = {}
-    pitches.forEach(p => p.sits.forEach(s => {
-      if (!smap[s]) smap[s] = {}
-      smap[s][p.pitch] = (smap[s][p.pitch] || 0) + 1
-    }))
-    Object.keys(smap).forEach(s => {
-      const total = Object.values(smap[s]).reduce((a, b) => a + b, 0)
-      lines.push(`${s}: ` + Object.keys(smap[s]).map(pt => `${ptLabel(pt)} ${Math.round(smap[s][pt]/total*100)}%`).join(', '))
-    })
-    lines.push('', 'PITCH LOG', '---------')
-    pitches.forEach((p, i) => lines.push(
-      `${i+1}. ${ptLabel(p.pitch)} | ${p.count} | ${p.hand}HH | ${p.result}${p.sits.length ? ' | ' + p.sits.join(', ') : ''}`
-    ))
-    const blob = new Blob([lines.join('\n')], { type: 'text/plain' })
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = `${game.pitcher_name.replace(/\s+/g,'_')}_${game.date}_scout.txt`
-    a.click()
+  function handleExportPDF() { if (game) exportPDF(game) }
+  function handleExportExcel() { if (game) exportExcel(game) }
+
+  function switchPitcher() {
+    if (!switchForm.name.trim()) return
+    const updated = {
+      ...game,
+      pitcher_name: switchForm.name.trim(),
+      pitcher_number: switchForm.number,
+      pitcher_throws: switchForm.throws,
+    }
+    setGame(updated)
+    debouncedSave(updated)
+    // Reset count and batter tracking for new pitcher
+    setBalls(0); setStrikes(0)
+    setBatterNum(1)
+    setBases([false, false, false])
+    setOuts(0)
+    setSits(buildAutoSits(1, inning, myScore, oppScore, [], [false, false, false]))
+    setShowPitcherSwitch(false)
+    setSwitchForm({ name: '', number: '', throws: 'R' })
   }
 
   if (!game) return <div style={{ padding: '3rem', color: 'var(--text2)' }}>Loading…</div>
@@ -383,8 +361,10 @@ export default function GameDetail() {
             </div>
             {game.notes && <div style={{ marginTop: 6, fontSize: 13, color: 'var(--text3)', fontStyle: 'italic' }}>{game.notes}</div>}
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn btn-sm" onClick={exportReport}>↓ Export</button>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button className="btn btn-sm" onClick={() => setShowPitcherSwitch(true)}>⇄ Switch Pitcher</button>
+            <button className="btn btn-sm" onClick={handleExportPDF}>↓ PDF</button>
+            <button className="btn btn-sm" onClick={handleExportExcel}>↓ Excel</button>
             <span className="tag tag-gold" style={{ alignSelf: 'center' }}>{allPitches.length} pitches</span>
           </div>
         </div>
@@ -944,6 +924,43 @@ export default function GameDetail() {
                   )
                 })
             }
+          </div>
+        </div>
+      )}\n
+      {/* ── PITCHER SWITCH MODAL ── */}
+      {showPitcherSwitch && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 14, padding: '1.75rem', width: 340, maxWidth: '90vw' }}>
+            <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>Switch Pitcher</h2>
+            <p style={{ fontSize: 13, color: 'var(--text2)', marginBottom: '1.25rem' }}>
+              Current: <strong style={{ color: 'var(--accent)' }}>{game.pitcher_name}</strong> — pitch history is preserved. Batter count resets for new pitcher.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 5 }}>New pitcher name</div>
+                <input type="text" placeholder="e.g. Marcus Rivera" value={switchForm.name} onChange={e => setSwitchForm(f => ({ ...f, name: e.target.value }))} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 5 }}>Jersey #</div>
+                  <input type="text" placeholder="#" value={switchForm.number} onChange={e => setSwitchForm(f => ({ ...f, number: e.target.value }))} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 5 }}>Throws</div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    {['R','L'].map(h => (
+                      <button key={h} onClick={() => setSwitchForm(f => ({ ...f, throws: h }))} style={{ flex: 1, padding: '8px', fontFamily: 'Barlow Condensed', fontWeight: 700, fontSize: 14, border: `1px solid ${switchForm.throws === h ? 'var(--accent)' : 'var(--border2)'}`, borderRadius: 6, background: switchForm.throws === h ? 'rgba(212,168,67,0.15)' : 'transparent', color: switchForm.throws === h ? 'var(--accent)' : 'var(--text2)', cursor: 'pointer' }}>{h}HP</button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: '1.25rem' }}>
+              <button className="btn btn-primary" style={{ flex: 1, justifyContent: 'center' }} onClick={switchPitcher} disabled={!switchForm.name.trim()}>
+                Switch Pitcher
+              </button>
+              <button className="btn" onClick={() => setShowPitcherSwitch(false)}>Cancel</button>
+            </div>
           </div>
         </div>
       )}
