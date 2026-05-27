@@ -409,7 +409,21 @@ export default function GameDetail() {
 
       {/* Header */}
       <div style={{ marginBottom: '1.25rem' }}>
-        <Link to="/" style={{ fontSize: 13, color: 'var(--text2)', display: 'inline-flex', alignItems: 'center', gap: 4, marginBottom: 10 }}>← All games</Link>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <Link to="/" style={{ fontSize: 13, color: 'var(--text2)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>← All games</Link>
+          <button className="btn btn-sm btn-primary" onClick={async () => {
+            if (game) {
+              setSaving(true)
+              clearTimeout(saveTimer.current)
+              if (isSupabaseConfigured()) await saveGame(game)
+              else localSaveGame(game)
+              setSaving(false)
+            }
+            navigate('/')
+          }}>
+            ✓ Save & Exit
+          </button>
+        </div>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
