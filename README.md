@@ -1,4 +1,4 @@
-# ⚾ Pitcher Scout
+# ⚾ Pitch Tracking
 
 A high school baseball pitch scouting app. Log pitches in-game, track tendencies by count, batter handedness, and game situation. Works offline with localStorage, or sync across devices with Supabase.
 

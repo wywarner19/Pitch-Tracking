@@ -309,7 +309,7 @@ export default function GameDetail() {
     if (!game) return
     const pitches = game.pitches || []
     const lines = [
-      'PITCHER SCOUT REPORT', '====================', '',
+      'PITCH TRACKING REPORT', '====================', '',
       `Pitcher: ${game.pitcher_name}${game.pitcher_number ? ' #' + game.pitcher_number : ''} (${game.pitcher_throws}HP)`,
       `${game.my_team} vs ${game.opponent}`, `Date: ${game.date}`,
       `Total pitches: ${pitches.length}`, '',

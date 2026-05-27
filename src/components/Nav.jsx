@@ -30,7 +30,7 @@ export default function Nav() {
           fontFamily: 'Barlow Condensed', fontWeight: 700, fontSize: 14, color: '#0f1117'
         }}>PS</div>
         <span style={{ fontFamily: 'Barlow Condensed', fontWeight: 700, fontSize: 18, letterSpacing: '0.04em' }}>
-          PITCHER SCOUT
+          PITCH TRACKING
         </span>
       </Link>
       <div style={{ display: 'flex', gap: 4 }}>
