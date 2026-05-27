@@ -1019,6 +1019,7 @@ export default function GameDetail() {
             }
           </div>
         </div>
+      )}
 
       {/* ── PITCHER SWITCH MODAL ── */}
       {showPitcherSwitch && (
