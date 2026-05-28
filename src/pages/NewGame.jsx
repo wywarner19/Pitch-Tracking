@@ -147,13 +147,13 @@ export default function NewGame() {
                 {isScouting ? 'Pitcher being scouted is on which team?' : 'Your team is…'}
               </label>
               <div style={{ display: 'flex', gap: 8 }}>
-                {isScouting ? [
-                  { val: 'away', label: `Team 1 (home)`, sub: 'Pitches in bottom' },
-                  { val: 'home', label: `Team 2 (away)`, sub: 'Pitches in top' },
+                {(isScouting ? [
+                  { val: 'away', label: 'Team 1 (home)', sub: 'Pitches in bottom' },
+                  { val: 'home', label: 'Team 2 (away)', sub: 'Pitches in top' },
                 ] : [
                   { val: 'away', label: 'Away', sub: 'You pitch in top' },
                   { val: 'home', label: 'Home', sub: 'You pitch in bottom' },
-                ].map(opt => (
+                ]).map(opt => (
                   <button key={opt.val} type="button" onClick={() => set('home_away', opt.val)} style={{
                     flex: 1, padding: '10px', textAlign: 'center',
                     border: `1px solid ${form.home_away === opt.val ? 'var(--accent)' : 'var(--border2)'}`,
