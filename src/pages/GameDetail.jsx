@@ -100,6 +100,9 @@ export default function GameDetail() {
   const [reassignName, setReassignName] = useState('')
   const [showSaveInning, setShowSaveInning] = useState(false)
   const [inningVerify, setInningVerify] = useState({ pitchCount: 0, myScore: 0, oppScore: 0 })
+  const [showInningSummary, setShowInningSummary] = useState(false)
+  const [inningSummaryData, setInningSummaryData] = useState(null)
+  const [showInningBanner, setShowInningBanner] = useState(false)
   const [showCustomPitch, setShowCustomPitch] = useState(false)
   const [customPitchInput, setCustomPitchInput] = useState('')
 
@@ -456,13 +459,53 @@ export default function GameDetail() {
 
   // ── SAVE INNING MODAL ──────────────────────────────────────────────────────
   function confirmSaveInning() {
-    const gs = { inning, inningHalf, myScore: inningVerify.myScore, oppScore: inningVerify.oppScore, batterNum, bases, outs, activePitcherId, pitchCount: inningVerify.pitchCount }
-    setMyScore(inningVerify.myScore); setOppScore(inningVerify.oppScore)
-    setPitchCount(inningVerify.pitchCount)
-    setSits(buildAutoSits(batterNum, inning, inningVerify.myScore, inningVerify.oppScore, [], bases))
+    const completedInning = inning
+    const nextInning = inning + 1
+    const nextHalf = inningHalf // stays same half, just next inning number
+    const newMy = inningVerify.myScore
+    const newOpp = inningVerify.oppScore
+    const newCount = inningVerify.pitchCount
+
+    // Build summary data before advancing
+    const inningPitches = (game?.pitches || []).filter(p => p.inning === completedInning)
+    const pitchCounts = {}
+    inningPitches.filter(p => p.pitch).forEach(p => pitchCounts[p.pitch] = (pitchCounts[p.pitch] || 0) + 1)
+    setInningSummaryData({
+      completedInning,
+      nextInning,
+      pitchesLogged: inningPitches.length,
+      pitchCountConfirmed: newCount,
+      myScore: newMy,
+      oppScore: newOpp,
+      pitchMix: pitchCounts,
+      pitcher: activePitcher?.name || game?.pitcher_name,
+    })
+
+    // Advance state
+    setMyScore(newMy); setOppScore(newOpp)
+    setPitchCount(newCount)
+    setInning(nextInning)
+    setOuts(0)
+    setBases([false, false, false])
+    setSits(buildAutoSits(batterNum, nextInning, newMy, newOpp, [], [false, false, false]))
+
+    const gs = { inning: nextInning, inningHalf: nextHalf, myScore: newMy, oppScore: newOpp, batterNum, bases: [false, false, false], outs: 0, activePitcherId, pitchCount: newCount }
     const updated = { ...game, game_state: gs }
     setGame(updated); immediateSave(updated)
     setShowSaveInning(false)
+    setShowInningSummary(true)
+  }
+
+  function startNextInning() {
+    setShowInningSummary(false)
+    setShowInningBanner(false)
+    setInningSummaryData(null)
+  }
+
+  function viewFullBreakdown() {
+    setShowInningSummary(false)
+    setShowInningBanner(true)
+    setTab('tendencies')
   }
 
   // ── FILTERS ────────────────────────────────────────────────────────────────
@@ -1365,6 +1408,116 @@ export default function GameDetail() {
               <button className="btn btn-primary" style={{ flex:1, justifyContent:'center' }} onClick={confirmSaveInning}>✓ Confirm & Continue</button>
               <button className="btn" onClick={()=>setShowSaveInning(false)}>Edit more</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── INNING SUMMARY MODAL ── */}
+      {showInningSummary && inningSummaryData && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:'1rem' }}>
+          <div style={{ background:'var(--bg2)', border:'1px solid var(--border2)', borderRadius:14, padding:'1.75rem', width:440, maxWidth:'95vw', maxHeight:'90vh', overflowY:'auto' }}>
+
+            {/* Header */}
+            <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:'1.25rem' }}>
+              <div style={{ width:40, height:40, borderRadius:10, background:'rgba(212,168,67,0.15)', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'Barlow Condensed', fontWeight:700, fontSize:18, color:'var(--accent)', flexShrink:0 }}>
+                {inningSummaryData.completedInning}
+              </div>
+              <div>
+                <h2 style={{ fontSize:20, fontWeight:700, lineHeight:1 }}>End of {['1st','2nd','3rd','4th','5th','6th','7th','8th','9th'][inningSummaryData.completedInning-1]} Inning</h2>
+                <div style={{ fontSize:13, color:'var(--text2)', marginTop:3 }}>{inningSummaryData.pitcher}</div>
+              </div>
+            </div>
+
+            {/* Score */}
+            <div style={{ display:'grid', gridTemplateColumns:'1fr auto 1fr', alignItems:'center', gap:8, marginBottom:'1.25rem', padding:'12px', background:'var(--bg3)', borderRadius:8 }}>
+              <div style={{ textAlign:'center' }}>
+                <div style={{ fontSize:11, color:'var(--text3)', marginBottom:4 }}>{game.my_team || 'Us'}</div>
+                <div style={{ fontFamily:'Barlow Condensed', fontWeight:700, fontSize:32, color: inningSummaryData.myScore > inningSummaryData.oppScore ? 'var(--green)' : inningSummaryData.myScore < inningSummaryData.oppScore ? 'var(--red)' : 'var(--text)' }}>{inningSummaryData.myScore}</div>
+              </div>
+              <div style={{ fontFamily:'Barlow Condensed', fontWeight:700, fontSize:20, color:'var(--text3)' }}>–</div>
+              <div style={{ textAlign:'center' }}>
+                <div style={{ fontSize:11, color:'var(--text3)', marginBottom:4 }}>{game.opponent || 'Them'}</div>
+                <div style={{ fontFamily:'Barlow Condensed', fontWeight:700, fontSize:32, color: inningSummaryData.oppScore > inningSummaryData.myScore ? 'var(--green)' : inningSummaryData.oppScore < inningSummaryData.myScore ? 'var(--red)' : 'var(--text)' }}>{inningSummaryData.oppScore}</div>
+              </div>
+            </div>
+
+            {/* Pitch count */}
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 12px', background:'var(--bg3)', borderRadius:8, marginBottom:'1.25rem' }}>
+              <div style={{ fontSize:13, color:'var(--text2)' }}>Pitches this inning</div>
+              <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                <span style={{ fontSize:13, color:'var(--text3)' }}>Logged: {inningSummaryData.pitchesLogged}</span>
+                <span style={{ fontSize:13, color:'var(--accent)', fontWeight:600 }}>Total: {inningSummaryData.pitchCountConfirmed}</span>
+              </div>
+            </div>
+
+            {/* Pitch mix this inning */}
+            {Object.keys(inningSummaryData.pitchMix).length > 0 && (
+              <div style={{ marginBottom:'1.25rem' }}>
+                <div className="section-label" style={{ marginBottom:8 }}>Pitch mix this inning</div>
+                {(() => {
+                  const total = Object.values(inningSummaryData.pitchMix).reduce((a,b)=>a+b,0)
+                  return Object.keys(inningSummaryData.pitchMix).sort((a,b)=>inningSummaryData.pitchMix[b]-inningSummaryData.pitchMix[a]).map(pt => {
+                    const n = inningSummaryData.pitchMix[pt]
+                    const pct = Math.round(n/total*100)
+                    const c = ptColor(pt, customPitches)
+                    return (
+                      <div key={pt} style={{ display:'flex', alignItems:'center', gap:8, padding:'6px 0', borderBottom:'1px solid var(--border)' }}>
+                        <div style={{ width:8, height:8, borderRadius:'50%', background:c, flexShrink:0 }} />
+                        <span style={{ fontFamily:'Barlow Condensed', fontWeight:600, fontSize:13, minWidth:75, color:c }}>{ptLabel(pt, customPitches)}</span>
+                        <div style={{ flex:1, height:5, background:'var(--bg3)', borderRadius:3, overflow:'hidden' }}>
+                          <div style={{ width:`${pct}%`, height:'100%', background:c, borderRadius:3 }} />
+                        </div>
+                        <span style={{ fontSize:12, fontWeight:600, color:c, minWidth:36, textAlign:'right' }}>{pct}%</span>
+                        <span style={{ fontSize:11, color:'var(--text3)', minWidth:20 }}>{n}x</span>
+                      </div>
+                    )
+                  })
+                })()}
+              </div>
+            )}
+
+            {/* Buttons */}
+            <div style={{ display:'flex', gap:8 }}>
+              <button className="btn btn-primary" style={{ flex:2, justifyContent:'center', padding:'11px' }} onClick={startNextInning}>
+                Start {['1st','2nd','3rd','4th','5th','6th','7th','8th','9th'][inningSummaryData.nextInning-1] || `${inningSummaryData.nextInning}th`} Inning →
+              </button>
+              <button className="btn" style={{ flex:1, justifyContent:'center' }} onClick={viewFullBreakdown}>
+                Full Breakdown
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── STICKY INNING BANNER ── */}
+      {showInningBanner && inningSummaryData && (
+        <div style={{
+          position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 150,
+          background: 'var(--bg2)', borderTop: '1px solid var(--accent)',
+          padding: '12px 1.5rem',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem',
+          boxShadow: '0 -4px 24px rgba(0,0,0,0.4)',
+        }}>
+          <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+            <div style={{ width:32, height:32, borderRadius:8, background:'rgba(212,168,67,0.15)', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'Barlow Condensed', fontWeight:700, fontSize:15, color:'var(--accent)' }}>
+              {inningSummaryData.completedInning}
+            </div>
+            <div>
+              <div style={{ fontFamily:'Barlow Condensed', fontWeight:700, fontSize:15, color:'var(--text)' }}>
+                End of {['1st','2nd','3rd','4th','5th','6th','7th','8th','9th'][inningSummaryData.completedInning-1]} · Score: {inningSummaryData.myScore}–{inningSummaryData.oppScore}
+              </div>
+              <div style={{ fontSize:11, color:'var(--text3)', marginTop:1 }}>
+                {inningSummaryData.pitchCountConfirmed} pitches confirmed · Tap to review or start next inning
+              </div>
+            </div>
+          </div>
+          <div style={{ display:'flex', gap:8, flexShrink:0 }}>
+            <button className="btn btn-sm" onClick={() => setShowInningSummary(true)}>
+              Review
+            </button>
+            <button className="btn btn-sm btn-primary" onClick={startNextInning}>
+              Start {['1st','2nd','3rd','4th','5th','6th','7th','8th','9th'][inningSummaryData.nextInning-1] || `${inningSummaryData.nextInning}th`} →
+            </button>
           </div>
         </div>
       )}
