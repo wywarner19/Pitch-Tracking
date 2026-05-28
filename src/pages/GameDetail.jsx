@@ -105,6 +105,7 @@ export default function GameDetail() {
 
   // Filter state
   const [fHand, setFHand] = useState('All')
+  const [seqHand, setSeqHand] = useState('All')
   const [fCount, setFCount] = useState('All')
   const [fSit, setFSit] = useState('All')
   const [fPitch, setFPitch] = useState('All')
@@ -988,11 +989,31 @@ export default function GameDetail() {
 
       {/* ── SEQUENCES TAB ── */}
       {tab === 'sequences' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+        <div>
+          {/* Filter bar */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '1rem' }}>
+            <div style={{ fontSize: 13, color: 'var(--text2)', marginRight: 4 }}>Batter:</div>
+            {['All','R','L'].map(h => (
+              <button key={h} onClick={() => setSeqHand(h)} style={{
+                padding: '6px 14px', fontSize: 13, fontFamily: 'Barlow Condensed', fontWeight: 600,
+                border: `1px solid ${seqHand === h ? 'var(--accent)' : 'var(--border2)'}`,
+                borderRadius: 6, background: seqHand === h ? 'rgba(212,168,67,0.15)' : 'transparent',
+                color: seqHand === h ? 'var(--accent)' : 'var(--text2)', cursor: 'pointer',
+              }}>{h === 'All' ? 'All batters' : h + 'HH'}</button>
+            ))}
+            <span style={{ fontSize: 12, color: 'var(--text3)', marginLeft: 8 }}>
+              {(seqHand === 'All' ? allPitches : allPitches.filter(p => p.hand === seqHand)).length} pitches
+            </span>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+          {(() => {
+            const seqPitches = seqHand === 'All' ? allPitches : allPitches.filter(p => p.hand === seqHand)
+            return (<>
           <div className="card">
             <div className="section-label">First pitch (0-0)</div>
             {(() => {
-              const { counts, total: t } = getFirstPitchTendencies(allPitches)
+              const { counts, total: t } = getFirstPitchTendencies(seqPitches)
               if (!t) return <div style={{color:'var(--text3)',fontSize:13}}>No data.</div>
               return Object.keys(counts).sort((a,b)=>counts[b]-counts[a]).map(pt => (
                 <div key={pt} style={{display:'flex',alignItems:'center',gap:8,padding:'6px 0',borderBottom:'1px solid var(--border)'}}>
@@ -1010,7 +1031,7 @@ export default function GameDetail() {
           <div className="card">
             <div className="section-label">Put-away pitch (0-2, 1-2)</div>
             {(() => {
-              const { counts, total: t } = getPutawayTendencies(allPitches)
+              const { counts, total: t } = getPutawayTendencies(seqPitches)
               if (!t) return <div style={{color:'var(--text3)',fontSize:13}}>No data.</div>
               return Object.keys(counts).sort((a,b)=>counts[b]-counts[a]).map(pt => (
                 <div key={pt} style={{display:'flex',alignItems:'center',gap:8,padding:'6px 0',borderBottom:'1px solid var(--border)'}}>
@@ -1028,7 +1049,7 @@ export default function GameDetail() {
           <div className="card">
             <div className="section-label">Get-me-over (2-0, 3-0, 3-1)</div>
             {(() => {
-              const { counts, total: t } = getGetMeOverTendencies(allPitches)
+              const { counts, total: t } = getGetMeOverTendencies(seqPitches)
               if (!t) return <div style={{color:'var(--text3)',fontSize:13}}>No data.</div>
               return Object.keys(counts).sort((a,b)=>counts[b]-counts[a]).map(pt => (
                 <div key={pt} style={{display:'flex',alignItems:'center',gap:8,padding:'6px 0',borderBottom:'1px solid var(--border)'}}>
@@ -1046,7 +1067,7 @@ export default function GameDetail() {
           <div className="card">
             <div className="section-label">Most common 2-pitch sequences</div>
             {(() => {
-              const seqs = getSequences(allPitches)
+              const seqs = getSequences(seqPitches)
               if (!seqs.length) return <div style={{color:'var(--text3)',fontSize:13}}>Need more pitches.</div>
               const maxN = seqs[0]?.[1] || 1
               return seqs.map(([key, count]) => {
@@ -1065,6 +1086,9 @@ export default function GameDetail() {
               })
             })()}
           </div>
+          </>)
+          })()}
+        </div>
         </div>
       )}
 
