@@ -1,5 +1,4 @@
 import { createClient } from '@supabase/supabase-js'
-import { queueOfflineSave, getOfflineQueue, clearOfflineQueue, localSaveGame, localLoadGames } from './store'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || ''
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || ''
@@ -14,108 +13,132 @@ export function isOnline() {
   return navigator.onLine
 }
 
-// ── OFFLINE QUEUE SYNC ────────────────────────────────────────────────────────
-export async function syncOfflineQueue() {
-  if (!supabase || !isOnline()) return
-  const queue = getOfflineQueue()
-  if (!queue.length) return
-  for (const game of queue) {
-    await saveGame(game)
-  }
-  clearOfflineQueue()
+// ── SCHEMA COLUMNS ────────────────────────────────────────────────────────────
+// Only include fields that exist in the Supabase table
+const ALLOWED_COLUMNS = [
+  'id', 'created_at', 'date', 'my_team', 'opponent',
+  'pitcher_name', 'pitcher_throws', 'pitcher_number',
+  'notes', 'pitches', 'updated_at', 'game_state',
+  'pitchers', 'mode', 'home_away', 'custom_pitches',
+]
+
+function cleanForSupabase(game) {
+  const cleaned = {}
+  ALLOWED_COLUMNS.forEach(col => {
+    if (game[col] !== undefined) cleaned[col] = game[col]
+  })
+  cleaned.updated_at = new Date().toISOString()
+  return cleaned
 }
 
-if (typeof window !== 'undefined') {
-  window.addEventListener('online', () => syncOfflineQueue())
-}
+// ── LOCAL STORAGE BACKUP ──────────────────────────────────────────────────────
+const LOCAL_KEY = 'pitch_tracking_games'
 
-// ─── SUPABASE SCHEMA ──────────────────────────────────────────────────────────
-// create table games (
-//   id uuid primary key default gen_random_uuid(),
-//   created_at timestamptz default now(),
-//   date text not null,
-//   my_team text not null,
-//   opponent text not null,
-//   pitcher_name text not null,
-//   pitcher_throws text not null,
-//   pitcher_number text,
-//   notes text,
-//   pitches jsonb default '[]'::jsonb
-// );
-// alter table games enable row level security;
-// create policy "public access" on games for all using (true);
-// ─────────────────────────────────────────────────────────────────────────────
-
-// Strip out any fields that don't exist in the Supabase schema
-function cleanGameForSupabase(game) {
-  const { offline, ...clean } = game
-  return {
-    ...clean,
-    updated_at: new Date().toISOString(),
+function localSaveGame(game) {
+  try {
+    const games = localLoadGames()
+    const idx = games.findIndex(g => g.id === game.id)
+    if (idx > -1) games[idx] = game
+    else games.unshift(game)
+    localStorage.setItem(LOCAL_KEY, JSON.stringify(games))
+  } catch (e) {
+    console.warn('localStorage save failed:', e)
   }
 }
 
+export function localLoadGames() {
+  try {
+    const raw = localStorage.getItem(LOCAL_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch {
+    return []
+  }
+}
+
+function localDeleteGame(id) {
+  try {
+    const games = localLoadGames().filter(g => g.id !== id)
+    localStorage.setItem(LOCAL_KEY, JSON.stringify(games))
+  } catch (e) {
+    console.warn('localStorage delete failed:', e)
+  }
+}
+
+// ── LOAD GAMES ────────────────────────────────────────────────────────────────
 export async function loadGames() {
-  if (!supabase) return { data: null, error: 'Supabase not configured' }
+  // Always load from local first as immediate fallback
+  const local = localLoadGames()
 
-  if (!isOnline()) {
-    return { data: localLoadGames(), error: null }
+  if (!supabase || !isOnline()) {
+    return { data: local, error: null }
   }
 
-  const result = await supabase
-    .from('games')
-    .select('*')
-    .order('date', { ascending: false })
+  try {
+    const { data, error } = await supabase
+      .from('games')
+      .select('*')
+      .order('date', { ascending: false })
 
-  if (result.error) {
-    console.error('Supabase loadGames error:', result.error)
-    // Fall back to local data if Supabase fails
-    return { data: localLoadGames(), error: null }
+    if (error) {
+      console.error('Supabase loadGames error:', error)
+      return { data: local, error: null }
+    }
+
+    // Merge: Supabase is source of truth, but keep any local-only games
+    // that haven't made it to Supabase yet
+    const supabaseIds = new Set((data || []).map(g => g.id))
+    const localOnly = local.filter(g => g.id && !supabaseIds.has(g.id))
+
+    if (localOnly.length > 0) {
+      console.log(`Found ${localOnly.length} local-only games, syncing to Supabase...`)
+      for (const game of localOnly) {
+        await saveGame(game)
+      }
+    }
+
+    // Update local cache with Supabase data
+    if (data && data.length > 0) {
+      data.forEach(g => localSaveGame(g))
+    }
+
+    // Return merged list: Supabase data + any local-only games not yet synced
+    const merged = [...(data || []), ...localOnly].sort((a, b) =>
+      (b.date || '').localeCompare(a.date || '')
+    )
+
+    return { data: merged, error: null }
+  } catch (err) {
+    console.error('loadGames exception:', err)
+    return { data: local, error: null }
   }
-
-  // Only cache locally if Supabase returned actual data
-  if (result.data && result.data.length > 0) {
-    result.data.forEach(g => localSaveGame(g))
-  }
-
-  return result
 }
 
+// ── SAVE GAME ─────────────────────────────────────────────────────────────────
 export async function saveGame(game) {
-  if (!supabase) return { data: null, error: 'Supabase not configured' }
-
-  // Always save locally first so data is never lost
+  // Always save locally first — this is the safety net
   localSaveGame(game)
 
+  if (!supabase) {
+    return { data: game, error: null }
+  }
+
   if (!isOnline()) {
-    queueOfflineSave(game)
+    console.log('Offline — saved locally only')
     return { data: game, error: null, offline: true }
   }
 
-  const cleaned = cleanGameForSupabase(game)
+  const cleaned = cleanForSupabase(game)
 
   try {
     let result
 
     if (cleaned.id) {
-      // Try update
+      // Try upsert — inserts if not exists, updates if exists
       result = await supabase
         .from('games')
-        .update(cleaned)
-        .eq('id', cleaned.id)
+        .upsert(cleaned, { onConflict: 'id' })
         .select()
         .single()
-
-      // If row doesn't exist yet, insert it
-      if (result.error || !result.data) {
-        console.log('Update failed, trying insert:', result.error?.message)
-        const { id, ...rest } = cleaned
-        result = await supabase
-          .from('games')
-          .insert({ ...rest, id })
-          .select()
-          .single()
-      }
     } else {
       result = await supabase
         .from('games')
@@ -126,21 +149,41 @@ export async function saveGame(game) {
 
     if (result.error) {
       console.error('Supabase saveGame error:', result.error)
-      queueOfflineSave(game)
-      return { data: game, error: result.error }
+      // Data is safe in localStorage — return success so UI doesn't break
+      return { data: game, error: null }
     }
 
+    // Update local copy with server response (may have server-generated fields)
     if (result.data) localSaveGame(result.data)
     return result
 
   } catch (err) {
-    console.error('Supabase saveGame exception:', err)
-    queueOfflineSave(game)
-    return { data: game, error: err }
+    console.error('saveGame exception:', err)
+    return { data: game, error: null }
   }
 }
 
+// ── DELETE GAME ───────────────────────────────────────────────────────────────
 export async function deleteGame(id) {
-  if (!supabase) return { error: null }
-  return await supabase.from('games').delete().eq('id', id)
+  // Delete locally first
+  localDeleteGame(id)
+
+  if (!supabase || !isOnline()) {
+    return { error: null }
+  }
+
+  try {
+    return await supabase.from('games').delete().eq('id', id)
+  } catch (err) {
+    console.error('deleteGame exception:', err)
+    return { error: null }
+  }
+}
+
+// ── AUTO SYNC ON RECONNECT ────────────────────────────────────────────────────
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', async () => {
+    console.log('Back online — syncing local games to Supabase...')
+    await loadGames() // this handles the merge automatically
+  })
 }
